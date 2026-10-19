@@ -1,0 +1,8 @@
+ticker,shares,buy_price,buy_date,account_type,notes
+NVDA,20,118.50,2024-06-12,Taxable,AI Growth Tranche 1
+NVDA,10,128.00,2024-08-20,Taxable,Dip purchase
+AAPL,25,182.20,2023-11-05,Roth IRA,Long term hold
+MSFT,15,410.00,2024-03-15,Taxable,Cloud enterprise exposure
+AMZN,18,175.40,2024-04-10,Taxable,E-commerce and AWS
+JNJ,10,152.00,2023-09-18,Roth IRA,Healthcare defensive
+SPY,15,510.00,2024-05-01,Taxable,S&P 500 core ETF
