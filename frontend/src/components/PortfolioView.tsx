@@ -125,9 +125,29 @@ export const PortfolioView: React.FC = () => {
     if (!confirm("Reset to default sample portfolio (NVDA, AAPL, MSFT, AMZN, JNJ, SPY)?")) return;
     try {
       await fetch('/api/portfolio/reset', { method: 'POST' });
-      fetchPortfolio();
+      setUploadStatus("Loaded default sample portfolio.");
+      fetchPortfolio(true);
     } catch (err) {
       console.error("Reset failed:", err);
+      setUploadStatus("Failed to reset sample portfolio.");
+    }
+  };
+
+  const handleClearPortfolio = async () => {
+    if (!confirm("Are you sure you want to reset your portfolio and clear all holdings? All recorded stock lots will be permanently deleted.")) {
+      return;
+    }
+    try {
+      const res = await fetch('/api/portfolio/clear', { method: 'POST' });
+      if (res.ok) {
+        setUploadStatus("Portfolio cleared! All lots have been reset to empty.");
+        fetchPortfolio(true);
+      } else {
+        setUploadStatus("Failed to clear portfolio.");
+      }
+    } catch (err) {
+      console.error("Clear portfolio failed:", err);
+      setUploadStatus("Failed to clear portfolio.");
     }
   };
 
@@ -187,8 +207,16 @@ export const PortfolioView: React.FC = () => {
           <button className="btn-secondary" onClick={() => setShowAddForm(!showAddForm)}>
             <PlusCircle size={16} /> Add Lot
           </button>
-          <button className="btn-secondary" onClick={handleResetSample} title="Reset to sample dataset">
+          <button className="btn-secondary" onClick={handleResetSample} title="Load standard sample dataset (NVDA, AAPL, MSFT, etc.)">
             <FileSpreadsheet size={16} /> Sample Data
+          </button>
+          <button
+            className="btn-danger"
+            onClick={handleClearPortfolio}
+            title="Reset and clear all lots in portfolio"
+            disabled={!report?.positions || report.positions.length === 0}
+          >
+            <Trash2 size={16} /> Reset Portfolio
           </button>
           <button
             className="btn-secondary"
@@ -398,7 +426,31 @@ export const PortfolioView: React.FC = () => {
               ) : (
                 <tr>
                   <td colSpan={9} className="empty-row">
-                    {loading ? "Loading portfolio and real-time market quotes..." : "No positions found. Click 'Sample Data' or import a CSV to populate."}
+                    {loading ? (
+                      <div className="empty-state-content">
+                        <RefreshCw size={24} className="spin-icon" />
+                        <p>Loading portfolio and real-time market quotes...</p>
+                      </div>
+                    ) : (
+                      <div className="empty-state-content">
+                        <p className="empty-state-title">Your portfolio is currently empty</p>
+                        <p className="empty-state-desc">
+                          You can import a brokerage CSV, record individual bought lots, or load the pre-configured sample portfolio to explore analytics.
+                        </p>
+                        <div className="empty-state-actions">
+                          <button className="btn-primary" onClick={handleResetSample}>
+                            <FileSpreadsheet size={15} /> Load Sample Portfolio
+                          </button>
+                          <button className="btn-secondary" onClick={() => setShowAddForm(true)}>
+                            <PlusCircle size={15} /> Add First Lot
+                          </button>
+                          <label className="btn-secondary upload-label">
+                            <Upload size={15} /> Import CSV
+                            <input type="file" accept=".csv" onChange={handleFileUpload} style={{ display: 'none' }} />
+                          </label>
+                        </div>
+                      </div>
+                    )}
                   </td>
                 </tr>
               )}

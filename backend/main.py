@@ -28,8 +28,8 @@ from backend.portfolio.models import PortfolioLot
 
 app = FastAPI(
     title="AI Stock & Portfolio Analysis Assistant",
-    description="Local AI Stock Analysis, Portfolio Valuation, and Forward-Looking Rebalancing Engine",
-    version="1.0.0"
+    description="AI Stock Analysis, Portfolio Valuation, and Forward-Looking Rebalancing Engine",
+    version="1.0.1"
 )
 
 # Enable CORS for frontend development
@@ -100,6 +100,16 @@ async def health():
     }
 
 
+@app.get("/api/config")
+async def get_config():
+    """Return runtime configuration information."""
+    return {
+        "status": "ok",
+        "provider": settings.LLM_PROVIDER,
+        "configured_model": settings.MODEL_NAME,
+    }
+
+
 # ========================================================
 # Chat Streaming Endpoint (SSE)
 # ========================================================
@@ -117,6 +127,9 @@ async def chat_endpoint(request: RequestObject):
 
     def generate_tokens():
         try:
+            in_thinking = False
+            announced_tools = set()
+
             for event in financial_agent.stream(
                 {"messages": [HumanMessage(content=user_message)]},
                 stream_mode="messages",
@@ -134,29 +147,95 @@ async def chat_endpoint(request: RequestObject):
                 if token is None:
                     continue
 
-                # 1. Skip events originating from the tools execution node
+                # 1. Announce tool execution if tool_calls are initiated
+                tool_calls = getattr(token, "tool_calls", None)
+                if tool_calls and isinstance(tool_calls, list):
+                    for tc in tool_calls:
+                        name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None)
+                        if name and name not in announced_tools:
+                            announced_tools.add(name)
+                            ticker_arg = ""
+                            args = tc.get("args") if isinstance(tc, dict) else getattr(tc, "args", {})
+                            if isinstance(args, dict) and "ticker" in args:
+                                ticker_arg = f" for **{args['ticker'].upper()}**"
+                            yield f"> 🔍 *Fetching {name.replace('_', ' ')}{ticker_arg}...*\n\n"
+
+                # 2. Skip events originating from the tools execution node itself
                 if metadata.get("langgraph_node") == "tools":
                     continue
 
-                # 2. Skip ToolMessage objects (which carry the tool JSON output)
+                # 3. Skip ToolMessage objects (carrying raw tool JSON return)
                 if "tool" in token.__class__.__name__.lower():
                     continue
 
-                # 3. Yield text content from the AI model
+                # 4. Stream reasoning/thinking tokens from local reasoning models (Qwen / DeepSeek)
+                add_kwargs = getattr(token, "additional_kwargs", {}) or {}
+                reasoning = add_kwargs.get("reasoning_content") or add_kwargs.get("thinking")
+                if reasoning and isinstance(reasoning, str):
+                    if not in_thinking:
+                        yield "<think>\n"
+                        in_thinking = True
+                    yield reasoning
+
+                # 5. Yield text content from the AI model
                 content = getattr(token, "content", None)
-                if content and isinstance(content, str):
-                    yield content
-                elif isinstance(content, list):
-                    for block in content:
-                        if isinstance(block, dict) and "text" in block:
-                            yield block["text"]
-                        elif isinstance(block, str):
-                            yield block
+                if content:
+                    if in_thinking:
+                        yield "\n</think>\n\n"
+                        in_thinking = False
+
+                    if isinstance(content, str):
+                        yield content
+                    elif isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and "text" in block:
+                                yield block["text"]
+                            elif isinstance(block, str):
+                                yield block
+
+            if in_thinking:
+                yield "\n</think>\n\n"
+
         except Exception as e:
             import traceback
             print(f"[Chat Stream Error] {e}")
             traceback.print_exc()
-            yield f"\n\n[Error generating response: {str(e)}]"
+
+            # Inspect exception chain (LangGraph Pregel / OpenAI SDK)
+            err = e
+            chain = [err]
+            while getattr(err, "__cause__", None) or getattr(err, "__context__", None):
+                err = getattr(err, "__cause__", None) or getattr(err, "__context__", None)
+                chain.append(err)
+
+            combined_err = " ".join([str(x) for x in chain])
+            for item in chain:
+                body = getattr(item, "body", None)
+                if isinstance(body, dict):
+                    err_dict = body.get("error", {})
+                    if isinstance(err_dict, dict) and "message" in err_dict:
+                        combined_err += f" {err_dict['message']}"
+
+            is_thesys = settings.LLM_PROVIDER.lower() == "thesys" or "thesys" in str(settings.OPENAI_BASE_URL).lower()
+
+            if "insufficient balance" in combined_err.lower():
+                yield (
+                    "\n\n> ⚠️ **Thesys Cloud API Error: Insufficient Balance (HTTP 429)**\n>\n"
+                    "> Your Thesys account has run out of credits or has an insufficient balance.\n>\n"
+                    "> **Options:**\n"
+                    "> 1. **Switch to Local Ollama (Free & Unlimited)**: Set `LLM_PROVIDER=ollama` in `backend/.env` to run on your local RTX GPU.\n"
+                    "> 2. **Refill Credits**: Add credits at [console.thesys.dev](https://console.thesys.dev)."
+                )
+            elif "http exception" in combined_err.lower() and is_thesys:
+                yield (
+                    "\n\n> ⚠️ **Thesys Cloud API Error (`Http Exception` / HTTP 429)**\n>\n"
+                    "> Thesys returned an HTTP error (HTTP 429: Insufficient balance on your organization account).\n>\n"
+                    "> **Options:**\n"
+                    "> 1. **Switch to Local Ollama (Free & Unlimited)**: Set `LLM_PROVIDER=ollama` in `backend/.env` to run on your local RTX GPU.\n"
+                    "> 2. **Refill Credits**: Add credits at [console.thesys.dev](https://console.thesys.dev)."
+                )
+            else:
+                yield f"\n\n[Error generating response: {str(e)}]"
 
     return StreamingResponse(
         generate_tokens(),
@@ -248,6 +327,14 @@ def reset_sample_portfolio():
         }
     clear_lots()
     return {"status": "success", "message": "Cleared portfolio."}
+
+
+@app.post("/api/portfolio/clear")
+def clear_portfolio():
+    """Reset / clear all portfolio lots to an empty portfolio."""
+    clear_lots()
+    invalidate_portfolio_cache()
+    return {"status": "success", "message": "Portfolio has been reset and all lots cleared."}
 
 
 # ========================================================

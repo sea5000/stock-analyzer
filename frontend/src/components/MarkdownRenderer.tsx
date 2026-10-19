@@ -115,7 +115,9 @@ function preprocessContent(raw: string): { thought: string | null; body: string 
   }
 
   // If text starts with raw JSON object(s) preceding markdown
-  while (cleaned.startsWith('{')) {
+  let jsonStripCount = 0;
+  while (cleaned.startsWith('{') && jsonStripCount < 10) {
+    jsonStripCount++;
     const endBraceIdx = cleaned.indexOf('}\n');
     if (endBraceIdx !== -1) {
       cleaned = cleaned.slice(endBraceIdx + 2).trim();
@@ -141,6 +143,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
 
   let i = 0;
   while (i < lines.length) {
+    const loopStartIdx = i; // Safety checkpoint: guarantees loop advances
     const line = lines[i];
     const trimmed = line.trim();
 
@@ -217,13 +220,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
     }
 
     // 6. Tables (| Header | Header | and |---|---|)
-    // Tolerates lines with pipes (| ... | or ... | ...)
-    const isTableLine = (l: string) => {
+    const isTableSeparator = (l: string) => /^\|?(\s*:?-+:?\s*\|)+\s*:?-+:?\s*\|?$/.test(l.trim());
+    const isTableRow = (l: string) => {
       const t = l.trim();
-      return t.includes('|') && (t.startsWith('|') || t.split('|').length >= 2);
+      return t.startsWith('|') && t.includes('|');
     };
 
-    if (isTableLine(line) && i + 1 < lines.length && isTableLine(lines[i + 1])) {
+    if (isTableRow(line) && i + 1 < lines.length && (isTableSeparator(lines[i + 1]) || isTableRow(lines[i + 1]))) {
       const rawHeader = lines[i].trim();
       i++; // advance past header
 
@@ -234,12 +237,12 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
         .filter((c, idx, arr) => (idx > 0 && idx < arr.length - 1) || c.length > 0);
 
       // Check for separator row (|---|---|)
-      if (i < lines.length && /^\|?[-:\s|]+\|?$/.test(lines[i].trim()) && lines[i].includes('-')) {
+      if (i < lines.length && isTableSeparator(lines[i])) {
         i++; // advance past separator
       }
 
       const rows: string[][] = [];
-      while (i < lines.length && isTableLine(lines[i])) {
+      while (i < lines.length && isTableRow(lines[i])) {
         const rowCells = lines[i]
           .trim()
           .split('|')
@@ -313,18 +316,19 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
     }
 
     // 9. Multi-line Paragraph (combine contiguous non-empty text lines into a single coherent paragraph)
+    const isSpecialBlockStart = (idx: number) => {
+      if (idx >= lines.length) return false;
+      const t = lines[idx].trim();
+      if (!t) return false;
+      if (t.startsWith('```') || t.match(/^#{1,5}\s+/) || t.startsWith('>')) return true;
+      if (isBulletItem(lines[idx]) || isNumberedItem(lines[idx])) return true;
+      if (/^[-*_]{3,}$/.test(t)) return true;
+      if (isTableRow(lines[idx]) && idx + 1 < lines.length && isTableSeparator(lines[idx + 1])) return true;
+      return false;
+    };
+
     const paragraphLines: string[] = [];
-    while (
-      i < lines.length &&
-      lines[i].trim() &&
-      !lines[i].trim().startsWith('```') &&
-      !lines[i].trim().match(/^#{1,5}\s+/) &&
-      !lines[i].trim().startsWith('>') &&
-      !isTableLine(lines[i]) &&
-      !isBulletItem(lines[i]) &&
-      !isNumberedItem(lines[i]) &&
-      !/^[-*_]{3,}$/.test(lines[i].trim())
-    ) {
+    while (i < lines.length && lines[i].trim() && !isSpecialBlockStart(i)) {
       paragraphLines.push(lines[i].trim());
       i++;
     }
@@ -340,6 +344,14 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content }) =
           ))}
         </p>
       );
+    }
+
+    // 10. CRITICAL LOOP INVARIANT: Guarantee i always advances by at least 1!
+    if (i === loopStartIdx) {
+      if (trimmed) {
+        elements.push(<p key={`fallback_${i}`} className="md-paragraph">{parseInline(line)}</p>);
+      }
+      i++;
     }
   }
 

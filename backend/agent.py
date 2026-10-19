@@ -27,6 +27,7 @@ Guidelines for your responses:
 - Highlight key metrics: current price, unrealized P&L, portfolio weight %, P/E ratio, and analyst price targets.
 - When the user asks about their portfolio or how they are doing, call `get_portfolio_summary`.
 - When asked how to diversify or what to buy next, call `analyze_portfolio_diversification` and `recommend_next_buys`.
+- Keep internal reasoning concise. When market data, stock prices, or financial metrics are requested, immediately invoke the appropriate tool (e.g. `get_stock_price`, `get_key_ratios`) without prolonged deliberation.
 - Provide clear, objective, data-backed reasoning for all suggestions.
 - Sourcing & Attribution: At the bottom of detailed analyses, cite where the data originated (e.g., Yahoo Finance Live Quotes, SEC filings / Corporate 10-K, User Portfolio Engine, S&P 500 Benchmark). When reporting news articles, include the article headline and source publication link in markdown format `[Headline](url)`.
 """
@@ -38,6 +39,7 @@ def get_model() -> ChatOpenAI:
         base_url=settings.OPENAI_BASE_URL,
         api_key=settings.OPENAI_API_KEY,
         temperature=0.1,
+        max_tokens=4096,
         streaming=True,
     )
 

@@ -24,21 +24,35 @@ if [ ! -f "backend/.env" ]; then
     cp backend/.env.example backend/.env
 fi
 
-echo "Checking Ollama connectivity..."
+echo "Verifying AI provider configuration..."
 python3 -c "
-import urllib.request, json
-try:
-    with urllib.request.urlopen('http://localhost:11434/api/tags', timeout=2) as response:
-        data = json.loads(response.read().decode())
-        models = [m.get('name') for m in data.get('models', [])]
-        print('  [Ollama Status] ONLINE! Available models:', ', '.join(models) if models else 'None')
-        if any('qwen' in m for m in models):
-            print('  [Model Check] Qwen model detected!')
-        else:
-            print('  [Model Note] Tip: Ensure qwen3.8:27b is pulled (run: ollama pull qwen3.8:27b)')
-except Exception as e:
-    print('  [Ollama Status] WARNING: Ollama not detected at http://localhost:11434.')
-    print('  Please start Ollama in another terminal (run: ollama serve)')
+import os, urllib.request, json
+from pathlib import Path
+from dotenv import load_dotenv
+
+env_path = Path('backend/.env')
+if env_path.exists():
+    load_dotenv(dotenv_path=env_path)
+
+provider = os.getenv('LLM_PROVIDER', 'ollama').lower()
+model = os.getenv('MODEL_NAME', 'unknown')
+
+if provider == 'thesys':
+    key = os.getenv('OPENAI_API_KEY', '')
+    masked_key = key[:10] + '...' if len(key) > 10 else 'NOT_SET'
+    print(f'  [Provider] Active: THESYS C1 Cloud')
+    print(f'  [Model]    {model}')
+    print(f'  [API Key]  {masked_key}')
+else:
+    print(f'  [Provider] Active: Local OLLAMA (Model: {model})')
+    try:
+        with urllib.request.urlopen('http://localhost:11434/api/tags', timeout=2) as response:
+            data = json.loads(response.read().decode())
+            models = [m.get('name') for m in data.get('models', [])]
+            print('  [Ollama Status] ONLINE! Available models:', ', '.join(models) if models else 'None')
+    except Exception:
+        print('  [Ollama Status] WARNING: Ollama not detected at http://localhost:11434.')
+        print('  Please ensure Ollama is running if switching back to local AI.')
 "
 
 echo "Launching FastAPI server on http://localhost:8888..."

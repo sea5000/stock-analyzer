@@ -207,16 +207,20 @@ export const ChatView: React.FC = () => {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (instant = false) => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: instant ? 'auto' : 'smooth' });
+    }
   };
 
   useEffect(() => {
-    scrollToBottom();
+    // Use instant scroll during streaming to prevent stacking smooth-scroll animations
+    scrollToBottom(isStreaming);
   }, [messages, isStreaming]);
 
-  // Persist messages to localStorage whenever they update
+  // Persist messages to localStorage ONLY when stream finishes or chat resets
   useEffect(() => {
+    if (isStreaming) return; // Never thrash localStorage during active streaming
     try {
       const completeMessages = messages.filter(m => m.content && m.content.trim().length > 0);
       if (completeMessages.length > 0) {
@@ -225,10 +229,12 @@ export const ChatView: React.FC = () => {
     } catch (e) {
       console.warn("Could not save messages to localStorage:", e);
     }
-  }, [messages]);
+  }, [messages, isStreaming]);
+
+  const [resetNotification, setResetNotification] = useState<string | null>(null);
 
   const handleResetChat = () => {
-    if (messages.length > 1 && !confirm("Start a new chat session? This will clear your current conversation history.")) {
+    if (messages.length > 1 && !confirm("Reset chat and start a new conversation? Current chat messages will be cleared.")) {
       return;
     }
     const newId = `thread_${Date.now()}`;
@@ -238,6 +244,8 @@ export const ChatView: React.FC = () => {
       localStorage.setItem(STORAGE_KEY_THREAD, newId);
       localStorage.setItem(STORAGE_KEY_MESSAGES, JSON.stringify([INITIAL_WELCOME_MESSAGE]));
     } catch (e) {}
+    setResetNotification("Conversation history reset. Started a fresh thread.");
+    setTimeout(() => setResetNotification(null), 3500);
   };
 
   const sendMessage = async (textToSend?: string) => {
@@ -286,19 +294,33 @@ export const ChatView: React.FC = () => {
       const reader = response.body.getReader();
       const decoder = new TextDecoder('utf-8');
       let accumulated = '';
+      let lastRenderTime = 0;
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          // Final flush to guarantee full message is in state
+          setMessages(prev =>
+            prev.map(msg =>
+              msg.id === assistantId ? { ...msg, content: accumulated } : msg
+            )
+          );
+          break;
+        }
 
         const chunk = decoder.decode(value, { stream: true });
         accumulated += chunk;
 
-        setMessages(prev =>
-          prev.map(msg =>
-            msg.id === assistantId ? { ...msg, content: accumulated } : msg
-          )
-        );
+        // Throttle React state updates to 60fps (every ~40ms) to prevent UI thread choking
+        const now = performance.now();
+        if (now - lastRenderTime > 40) {
+          lastRenderTime = now;
+          setMessages(prev =>
+            prev.map(msg =>
+              msg.id === assistantId ? { ...msg, content: accumulated } : msg
+            )
+          );
+        }
       }
     } catch (err: any) {
       console.error("Streaming error:", err);
@@ -323,10 +345,38 @@ export const ChatView: React.FC = () => {
 
   return (
     <div className="chat-container">
-      {/* Quick Prompt Pills & Actions */}
+      {/* Chat Top Toolbar */}
+      <div className="chat-toolbar-header">
+        <div className="chat-toolbar-title">
+          <Sparkles size={15} className="sparkle-icon" />
+          <span className="chat-title-text">AI Financial Analyst</span>
+          <span className="chat-thread-badge">
+            <span className="dot-active"></span> Active Session
+          </span>
+        </div>
+        <div className="chat-toolbar-actions">
+          <button
+            className="btn-reset-chat"
+            onClick={handleResetChat}
+            title="Reset conversation and start fresh session"
+            disabled={isStreaming || messages.length <= 1}
+          >
+            <RotateCcw size={13} /> Reset Chat
+          </button>
+        </div>
+      </div>
+
+      {/* Reset Feedback Notification */}
+      {resetNotification && (
+        <div className="chat-reset-toast">
+          <Check size={14} /> {resetNotification}
+        </div>
+      )}
+
+      {/* Quick Prompt Pills */}
       <div className="quick-prompts-bar">
         <span className="quick-prompts-label">
-          <Sparkles size={14} className="sparkle-icon" /> Quick Inquiries:
+          Quick Inquiries:
         </span>
         <div className="quick-prompts-list">
           {QUICK_PROMPTS.map((prompt, idx) => (
@@ -340,14 +390,6 @@ export const ChatView: React.FC = () => {
             </button>
           ))}
         </div>
-        <button
-          className="btn-new-chat"
-          onClick={handleResetChat}
-          title="Start fresh conversation"
-          disabled={isStreaming}
-        >
-          <RotateCcw size={13} /> New Chat
-        </button>
       </div>
 
       {/* Messages Thread */}
@@ -408,6 +450,15 @@ export const ChatView: React.FC = () => {
 
       {/* Input Composer */}
       <div className="chat-composer">
+        <button
+          className="composer-action-btn"
+          onClick={handleResetChat}
+          title="Reset conversation"
+          disabled={isStreaming || messages.length <= 1}
+          type="button"
+        >
+          <RotateCcw size={16} />
+        </button>
         <textarea
           className="chat-input"
           placeholder="Ask about a stock, your portfolio, or how to diversify (Press Enter to send)..."

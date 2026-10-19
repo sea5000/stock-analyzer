@@ -49,6 +49,7 @@ backend/data/portfolio.json
 # Scratch & temp files
 scratch_*.py
 *.log
+thesys_models.txt
 
 # IDE & OS
 .vscode/
@@ -57,3 +58,7 @@ scratch_*.py
 *.swo
 .DS_Store
 Thumbs.db
+
+/local scratch kept out of history
+/tasks/
+/transcript.txt
