@@ -145,3 +145,10 @@ Build the frontend chat interface, add portfolio CSV upload and lots overview ta
 
 ### Objective 6: End-to-End Verification, Documentation & Developer Experience
 Test local Ollama interaction, test portfolio import and forward-looking diversification advice, write comprehensive `README.md` and startup scripts.
+
+### Objective 7: Local Git Repository & Chat UX Polishing
+- Initialized local git repository on branch `main` with comprehensive `.gitignore`.
+- Created structured local commits tracking backend architecture, frontend dashboard, and UX polishes.
+- Rewrote markdown parser (`MarkdownRenderer.tsx`) with multi-line fenced code block support, code copy button, collapsible model reasoning `<think>` block, and robust GFM tables.
+- Added message-level Copy button with visual feedback.
+- Added live Sourcing & Attribution pills and external citation links for financial market data, corporate SEC filings, user portfolio lots, and financial news.
